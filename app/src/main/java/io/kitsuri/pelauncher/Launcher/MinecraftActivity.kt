@@ -8,20 +8,17 @@ import com.mojang.minecraftpe.MainActivity
 import org.conscrypt.Conscrypt
 import java.security.Security
 
-/**
- * Self-preloading Minecraft activity
- */
 class MinecraftActivity : MainActivity() {
 
     private lateinit var gameManager: GamePackageManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Load everything BEFORE super.onCreate()
         try {
             Log.d(TAG, "Initializing game manager...")
             gameManager = GamePackageManager.getInstance(applicationContext)
+            Log.i(TAG, "Mode: ${if (gameManager.isBundledMode) "BUNDLED 1.26.60.4" else "INSTALLED ${gameManager.getVersionName()}"}")
+            Log.i(TAG, "Assets: ${gameManager.assetsSource}")
 
-            Log.d(TAG, "Setting up security provider...")
             try {
                 Security.insertProviderAt(Conscrypt.newProvider(), 1)
             } catch (e: Exception) {
@@ -31,45 +28,26 @@ class MinecraftActivity : MainActivity() {
             Log.d(TAG, "Loading native libraries...")
             gameManager.loadAllLibraries()
 
-            // Load launcher core
             val modsEnabled = intent.getBooleanExtra("MODS_ENABLED", false)
             if (!modsEnabled) {
-                Log.d(TAG, "Loading game core...")
+                Log.d(TAG, "Loading game core (shin)...")
                 System.loadLibrary("shin")
-
-                val libPath = if (gameManager.getPackageContext().applicationInfo.splitPublicSourceDirs?.isNotEmpty() == true) {
-                    // App bundle
-                    "${applicationContext.cacheDir.path}/lib/${android.os.Build.CPU_ABI}/libminecraftpe.so"
-                } else {
-                    // Standard APK
-                    "${gameManager.getPackageContext().applicationInfo.nativeLibraryDir}/libminecraftpe.so"
-                }
+                val libPath = gameManager.getMinecraftPePath()
+                Log.i(TAG, "Passing libminecraftpe.so to native: $libPath")
                 nativeOnLauncherLoaded(libPath)
             }
-
-            Log.i(TAG, "Game initialized successfully, calling super.onCreate()")
-
+            Log.i(TAG, "Game initialized, calling super.onCreate()")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize game", e)
-            Toast.makeText(
-                this,
-                "Failed to load game: ${e.message}",
-                Toast.LENGTH_LONG
-            ).show()
+            Toast.makeText(this, "Failed to load game: ${e.message}", Toast.LENGTH_LONG).show()
             finish()
             return
         }
-
-        // Now call super.onCreate() after everything is loaded
         super.onCreate(savedInstanceState)
     }
 
     override fun getAssets(): AssetManager {
-        return if (::gameManager.isInitialized) {
-            gameManager.getAssets()
-        } else {
-            super.getAssets()
-        }
+        return if (::gameManager.isInitialized) gameManager.getAssets() else super.getAssets()
     }
 
     private external fun nativeOnLauncherLoaded(libPath: String)
