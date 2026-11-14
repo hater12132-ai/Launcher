@@ -1,16 +1,19 @@
 name: Build APK
 
 on:
-  workflow_dispatch:   # run manually from GitHub UI
+  workflow_dispatch:
   push:
     branches: [ main, master ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: false   # broken unpaircore submodule
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -18,23 +21,44 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Setup Android SDK packages
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
+
+          # cmdline-tools path on GitHub runners
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager | sort | tail -n1)
+          echo "Using sdkmanager: $SDKMANAGER"
+
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+
+          # Do NOT install obsolete "tools" package
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.0.12077973" \
+            "cmake;3.22.1"
 
       - name: Download arm64 native libs
         run: |
           mkdir -p app/src/main/jniLibs/arm64-v8a
-          # TODO: put a real URL below (Release asset, Drive, etc.)
-          # Example if you upload split_config.arm64_v8a.apk to a GitHub Release:
-          # curl -L -o /tmp/arm64.apk "https://github.com/YOU/REPO/releases/download/libs/split_config.arm64_v8a.apk"
-          # unzip -j /tmp/arm64.apk "lib/arm64-v8a/*" -d app/src/main/jniLibs/arm64-v8a/
-          echo "Add your libs download URL here"
+          # TODO: replace with your real URL (GitHub Release asset recommended)
+          # curl -L -o /tmp/arm64.apk "https://github.com/hater12132-ai/Launcher/releases/download/libs/split_config.arm64_v8a.apk"
+          # unzip -o -j /tmp/arm64.apk "lib/arm64-v8a/*" -d app/src/main/jniLibs/arm64-v8a/
+          echo "Native libs step: add download URL when ready"
           ls -lh app/src/main/jniLibs/arm64-v8a/ || true
 
-      - name: Grant gradlew execute
+      - name: Make gradlew executable
         run: chmod +x gradlew
 
       - name: Build debug APK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: ./gradlew :app:assembleDebug --stacktrace
 
       - name: Upload APK
@@ -42,3 +66,4 @@ jobs:
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
